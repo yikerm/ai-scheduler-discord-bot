@@ -1,0 +1,42 @@
+# 私人環境設定與金鑰（僅提交 .env.example）
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*service-account*.json
+service-account*.json
+credentials*.json
+schedulerbot-*.json
+
+# 使用者資料與外部日曆匯出
+*.db
+*.sqlite
+*.sqlite3
+*.ics
+
+# Python 虛擬環境、快取與測試輸出
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# 執行記錄與本機編輯器檔案
+*.log
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 本機備份、開發紀錄與代理狀態
+*.orig
+*.bak
+*.tar.gz
+.agents/
+.codex/
+NATURAL_LANGUAGE_UPGRADE_PLAN.md
+UPGRADE_IMPLEMENTATION_DECISIONS.md

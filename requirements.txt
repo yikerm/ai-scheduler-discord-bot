@@ -1,0 +1,10 @@
+discord.py
+google-api-python-client
+google-genai
+APScheduler
+SQLAlchemy
+scikit-learn
+ortools
+python-dotenv
+icalendar
+recurring-ical-events
