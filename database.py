@@ -25,7 +25,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship,
 
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data.db")
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 class Base(DeclarativeBase):
@@ -94,6 +94,13 @@ class Feedback(Base):
         ForeignKey("task_segments.id", ondelete="CASCADE"), nullable=True
     )
     actual_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    task_name_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    task_category: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    parent_total_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    segment_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    segment_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    break_before_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    prior_task_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     scheduled_start: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     scheduled_end: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     time_of_day: Mapped[str] = mapped_column(String, nullable=False)
@@ -291,6 +298,13 @@ FEEDBACK_ADDITIONS = {
     "rating_method": "VARCHAR NOT NULL DEFAULT 'legacy_overall'",
     "segment_id": "INTEGER REFERENCES task_segments(id) ON DELETE CASCADE",
     "actual_minutes": "INTEGER",
+    "task_name_key": "VARCHAR",
+    "task_category": "VARCHAR",
+    "parent_total_minutes": "INTEGER",
+    "segment_index": "INTEGER",
+    "segment_count": "INTEGER",
+    "break_before_minutes": "INTEGER",
+    "prior_task_minutes": "INTEGER",
 }
 
 TASK_SEGMENT_ADDITIONS = {

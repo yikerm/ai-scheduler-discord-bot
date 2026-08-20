@@ -14,14 +14,14 @@
 在本機專案目錄執行：
 
 ```bash
-.venv/bin/python -m py_compile availability.py bot.py config.py database.py feedback_service.py gcal_service.py main.py ml_engine.py nlp_parser.py nlp_router.py planning_service.py recurrence_service.py rolling_optimizer.py scheduler.py segment_feedback.py settings_parser.py structured_add.py structured_delete.py structured_fixed.py structured_plan.py structured_repeat.py temporal_parser.py
+.venv/bin/python -m py_compile availability.py bot.py config.py database.py feedback_service.py gcal_service.py main.py ml_engine.py nlp_parser.py nlp_router.py planning_service.py recurrence_service.py rolling_optimizer.py scheduler.py segment_feedback.py settings_parser.py structured_add.py structured_delete.py structured_fixed.py structured_plan.py structured_repeat.py task_features.py temporal_parser.py
 ```
 
 ```bash
 DATABASE_URL=sqlite:////tmp/ai_scheduler_bot_upgrade_tests.db .venv/bin/python -m unittest discover -s tests -v
 ```
 
-必須顯示 `Ran 74 tests` 與 `OK`。
+必須顯示 `Ran 78 tests` 與 `OK`。
 
 ## 2. VM 備份目前程式
 
@@ -29,8 +29,8 @@ DATABASE_URL=sqlite:////tmp/ai_scheduler_bot_upgrade_tests.db .venv/bin/python -
 
 ```bash
 cd ~
-tar --exclude="ai_scheduler_bot/.venv" --exclude="ai_scheduler_bot/__pycache__" --exclude="ai_scheduler_bot/tests/__pycache__" -czf ai_scheduler_bot-code-before-v7-segment-feedback.tar.gz ai_scheduler_bot
-ls -lh ai_scheduler_bot-code-before-v7-segment-feedback.tar.gz
+tar --exclude="ai_scheduler_bot/.venv" --exclude="ai_scheduler_bot/__pycache__" --exclude="ai_scheduler_bot/tests/__pycache__" -czf ai_scheduler_bot-code-before-v9-recurrence-overlap-guard.tar.gz ai_scheduler_bot
+ls -lh ai_scheduler_bot-code-before-v9-recurrence-overlap-guard.tar.gz
 ```
 
 
@@ -75,8 +75,8 @@ systemctl is-active ai-scheduler-bot
 
 ```bash
 cd ~/ai_scheduler_bot
-sqlite3 data.db ".backup 'data.before-v7-segment-feedback.db'"
-ls -lh data.db data.before-v7-segment-feedback.db
+sqlite3 data.db ".backup 'data.before-v9-recurrence-overlap-guard.db'"
+ls -lh data.db data.before-v9-recurrence-overlap-guard.db
 ```
 
 不要刪除既有的資料庫備份。
@@ -91,22 +91,22 @@ cd ~/ai_scheduler_bot
 驗證：
 
 ```bash
-sqlite3 data.db "PRAGMA integrity_check; SELECT MAX(version) FROM schema_migrations; SELECT COUNT(*) FROM feedback; SELECT COUNT(*) FROM pragma_table_info('feedback') WHERE name='segment_id'; SELECT COUNT(*) FROM pragma_table_info('feedback') WHERE name='actual_minutes'; SELECT COUNT(*) FROM pragma_table_info('task_segments') WHERE name='status'; SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='segment_feedback_drafts';"
+sqlite3 data.db "PRAGMA integrity_check; SELECT MAX(version) FROM schema_migrations; SELECT COUNT(*) FROM feedback; SELECT COUNT(*) FROM pragma_table_info('feedback') WHERE name IN ('task_name_key', 'task_category', 'parent_total_minutes', 'segment_index', 'segment_count', 'break_before_minutes', 'prior_task_minutes'); SELECT COUNT(*) FROM pragma_table_info('feedback') WHERE name='segment_id'; SELECT COUNT(*) FROM pragma_table_info('task_segments') WHERE name='status'; SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='segment_feedback_drafts';"
 ```
 
 預期依序看到：
 
 ```text
 ok
-6
+7
 <應與升級前的 Feedback 筆數相同>
-1
+7
 1
 1
 1
 ```
 
-這表示 SQLite 完整、已套用 schema v6、舊回饋沒有減少，且分段回饋需要的欄位與暫存表都存在。
+這表示 SQLite 完整、已套用 schema v7、舊回饋沒有減少，七個個人化特徵欄位與既有分段回饋結構都存在。
 
 ## 7. 啟動與 Log 驗證
 
@@ -165,8 +165,11 @@ sudo journalctl -u ai-scheduler-bot -n 80 --no-pager
 7. 對其中一段測試「未完成」、原因選單與重新排程；該段 Calendar 應標紅，其他段不受影響。
 8. 對測試重複行程執行刪除，確認出現「只刪除此行程／刪除整個系列／取消」。
 9. 確認 `journalctl` 中 `recurrence_maintenance_job` 已註冊且沒有錯誤。
-10. 用 `/add` 建立一個「緊急」任務，確認卡片顯示優先度；若需要移動既有彈性任務，應先出現「未來 7 天重排建議」，Calendar 在按下確認前不得改變。
-11. 以 SQLite 查詢最新 Feedback，確認分段資料具有 `segment_id`、`actual_minutes`，且 `scheduled_start` 是 Calendar 最終時間；完整與未完成混合時父任務狀態為 `partially_completed`。
+10. 建立兩個同一天、可用時間相同的彈性重複系列；即使 Google Calendar Free/Busy 尚未反映第一個系列，第二個系列也不得排到相同時間。固定時間系列若撞期，後建立者必須顯示衝突而不能重疊。
+
+11. 用 `/add` 建立一個「緊急」任務，確認卡片顯示優先度；若需要移動既有彈性任務，應先出現「未來 7 天重排建議」，Calendar 在按下確認前不得改變。
+12. 以 SQLite 查詢最新 Feedback，確認新評分具有 `task_name_key`、`task_category`、`parent_total_minutes`、`segment_index`、`segment_count`、`break_before_minutes` 與 `prior_task_minutes`。
+13. 長任務只有勾選允許分割才會比較連續與分段方案；累積足夠的長短工作回饋後，確認排程摘要可依預測效率、精神與完成機率選擇較合適的段數。
 
 ## 9. 回復舊版
 

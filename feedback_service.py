@@ -18,6 +18,7 @@ from database import (
     TaskSegment,
 )
 from gcal_service import GoogleCalendarService
+from task_features import infer_task_category, normalize_task_name
 
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,55 @@ def _existing_feedback(session, task_id: int, segment_id: int | None) -> Feedbac
         else query.where(Feedback.segment_id.is_(None))
     )
     return session.scalar(query)
+
+
+def _feedback_context(
+    task: Task,
+    segment: TaskSegment | None,
+    start: datetime,
+) -> dict[str, int | str]:
+    """Snapshot context so later replans cannot rewrite training data."""
+    common: dict[str, int | str] = {
+        "task_name_key": normalize_task_name(task.task_name),
+        "task_category": infer_task_category(task.task_name),
+        "parent_total_minutes": max(1, int(task.estimated_minutes)),
+    }
+    if segment is None:
+        return {
+            **common,
+            "segment_index": 1,
+            "segment_count": 1,
+            "break_before_minutes": 0,
+            "prior_task_minutes": 0,
+        }
+
+    ordered = sorted(task.segments, key=lambda item: item.segment_index)
+    prior = [item for item in ordered if item.segment_index < segment.segment_index]
+    actual_by_segment = {
+        item.segment_id: item.actual_minutes
+        for item in task.feedback_entries
+        if item.segment_id is not None and item.actual_minutes
+    }
+    prior_minutes = sum(
+        int(
+            actual_by_segment.get(item.id)
+            or max(1, (item.scheduled_end - item.scheduled_start).total_seconds() // 60)
+        )
+        for item in prior
+    )
+    previous = prior[-1] if prior else None
+    break_minutes = (
+        max(0, int((start - previous.scheduled_end).total_seconds() // 60))
+        if previous
+        else 0
+    )
+    return {
+        **common,
+        "segment_index": int(segment.segment_index),
+        "segment_count": len(ordered),
+        "break_before_minutes": break_minutes,
+        "prior_task_minutes": prior_minutes,
+    }
 
 
 def save_efficiency_draft(
@@ -203,6 +253,7 @@ def finalize_completed(
                 mental_score=mental,
                 completion_status="completed",
                 rating_method="segment_two_stage" if segment else "two_stage",
+                **_feedback_context(task, segment, start),
             )
         )
         if segment:
@@ -278,6 +329,7 @@ def finalize_incomplete(
                 completion_status="incomplete",
                 incomplete_reason=reason,
                 rating_method="segment_incomplete" if segment else "incomplete",
+                **_feedback_context(task, segment, start),
             )
         )
         if segment:

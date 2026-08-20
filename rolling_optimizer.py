@@ -69,10 +69,29 @@ def _prediction_value(
 ) -> int:
     weighted = 0.0
     total = 0
-    for start, end in intervals:
+    previous_end: datetime | None = None
+    prior_task_minutes = 0
+    segment_count = len(intervals)
+    for segment_index, (start, end) in enumerate(intervals, start=1):
         minutes = int((end - start).total_seconds() // 60)
-        weighted += predictor.predict(minutes, start).total * minutes
+        break_before = (
+            max(0, int((start - previous_end).total_seconds() // 60))
+            if previous_end
+            else 0
+        )
+        weighted += predictor.predict(
+            minutes,
+            start,
+            task_name=getattr(task, "task_name", None),
+            parent_total_minutes=task.estimated_minutes,
+            segment_index=segment_index,
+            segment_count=segment_count,
+            break_before_minutes=break_before,
+            prior_task_minutes=prior_task_minutes,
+        ).total * minutes
         total += minutes
+        prior_task_minutes += minutes
+        previous_end = end
     return int(round((weighted / max(1, total)) * 1_000))
 
 
@@ -182,6 +201,8 @@ def _split_options(
                     int((slot["end"] - slot["start"]).total_seconds() // 60),
                 ),
                 slot["start"],
+                task_name=getattr(task, "task_name", None),
+                parent_total_minutes=task.estimated_minutes,
             ).total,
             reverse=True,
         )
