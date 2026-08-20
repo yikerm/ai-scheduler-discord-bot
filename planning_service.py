@@ -117,6 +117,77 @@ def _merge_slots(slots: list[dict[str, datetime]]) -> list[dict[str, datetime]]:
     return merged
 
 
+def _database_busy_intervals(
+    window_start: datetime,
+    window_end: datetime,
+) -> list[tuple[datetime, datetime]]:
+    """Return Bot intervals even when Calendar Free/Busy is briefly stale."""
+    with SessionLocal() as session:
+        tasks = list(
+            session.scalars(
+                select(Task)
+                .where(
+                    Task.status.in_(("scheduled", "feedback_requested")),
+                    Task.scheduled_start < _db_time(window_end),
+                    Task.scheduled_end > _db_time(window_start),
+                )
+                .options(selectinload(Task.segments))
+            )
+        )
+        intervals: list[tuple[datetime, datetime]] = []
+        for task in tasks:
+            if task.segments:
+                intervals.extend(
+                    (_local(segment.scheduled_start), _local(segment.scheduled_end))
+                    for segment in task.segments
+                    if segment.status in {"scheduled", "feedback_requested"}
+                    and _local(segment.scheduled_start) < window_end
+                    and _local(segment.scheduled_end) > window_start
+                )
+            elif task.event_id and task.scheduled_start and task.scheduled_end:
+                intervals.append(
+                    (_local(task.scheduled_start), _local(task.scheduled_end))
+                )
+    return sorted(intervals)
+
+
+def database_interval_is_free(start: datetime, end: datetime) -> bool:
+    """Check Bot-owned events without relying on Calendar propagation speed."""
+    local_start, local_end = _local(start), _local(end)
+    return not any(
+        busy_start < local_end and busy_end > local_start
+        for busy_start, busy_end in _database_busy_intervals(local_start, local_end)
+    )
+
+
+def _subtract_busy_intervals(
+    slots: list[dict[str, datetime]],
+    busy_intervals: list[tuple[datetime, datetime]],
+) -> list[dict[str, datetime]]:
+    remaining: list[dict[str, datetime]] = []
+    for slot in slots:
+        pieces = [(slot["start"], slot["end"])]
+        for busy_start, busy_end in busy_intervals:
+            updated: list[tuple[datetime, datetime]] = []
+            for start, end in pieces:
+                if busy_end <= start or busy_start >= end:
+                    updated.append((start, end))
+                    continue
+                if start < busy_start:
+                    updated.append((start, busy_start))
+                if busy_end < end:
+                    updated.append((busy_end, end))
+            pieces = updated
+            if not pieces:
+                break
+        remaining.extend(
+            {"start": start, "end": end}
+            for start, end in pieces
+            if start < end
+        )
+    return remaining
+
+
 def working_slots(
     calendar: GoogleCalendarService,
     target_day: date,
@@ -136,7 +207,9 @@ def working_slots(
         end = min(_local(slot["end"]), window_end)
         if start < end:
             clipped.append({"start": start, "end": end})
-    return _merge_slots(clipped)
+    merged = _merge_slots(clipped)
+    database_busy = _database_busy_intervals(window_start, window_end)
+    return _subtract_busy_intervals(merged, database_busy)
 
 
 def _failure(slots: list[dict[str, datetime]], minutes: int, deadline: datetime | None) -> tuple[str, str]:

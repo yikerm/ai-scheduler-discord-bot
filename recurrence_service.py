@@ -13,7 +13,7 @@ from config import REPEAT_HORIZON_DAYS
 from database import RecurrenceRule, SessionLocal, Task
 from gcal_service import GoogleCalendarService
 from ml_engine import train_and_predict
-from planning_service import attempt_schedule_task
+from planning_service import attempt_schedule_task, database_interval_is_free
 
 
 TIMEZONE = ZoneInfo("Asia/Taipei")
@@ -164,10 +164,11 @@ def create_rule(
 
 
 def _slot_is_free(calendar: GoogleCalendarService, start: datetime, end: datetime) -> bool:
-    return any(
+    calendar_is_free = any(
         slot["start"] <= start and end <= slot["end"]
         for slot in calendar.get_free_slots(start.date())
     )
+    return calendar_is_free and database_interval_is_free(start, end)
 
 
 def generate_occurrences(

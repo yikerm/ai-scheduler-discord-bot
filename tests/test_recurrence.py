@@ -129,6 +129,63 @@ class RecurrenceTests(unittest.TestCase):
             self.assertTrue(all(task.min_segment_minutes == 45 for task in tasks))
 
 
+    def test_flexible_series_do_not_overlap_when_calendar_free_busy_is_stale(self):
+        first = self._rule(final_end=date(2026, 8, 5))
+        second = create_rule(
+            group_id="second-daily-series",
+            user_id=123,
+            channel_id=456,
+            task_name="背單字",
+            minutes=60,
+            frequency="daily",
+            fixed_time=None,
+            allow_split=False,
+            priority=0,
+            final_end_date=date(2026, 8, 5),
+            now=self.now,
+        )
+
+        generate_occurrences(first.id, calendar=self.calendar, now=self.now)
+        generate_occurrences(second.id, calendar=self.calendar, now=self.now)
+
+        with SessionLocal() as session:
+            tasks = list(
+                session.query(Task)
+                .filter(
+                    Task.recurrence_date == date(2026, 8, 5),
+                    Task.status == "scheduled",
+                )
+                .order_by(Task.scheduled_start)
+            )
+        self.assertEqual(len(tasks), 2)
+        self.assertLessEqual(tasks[0].scheduled_end, tasks[1].scheduled_start)
+
+    def test_fixed_series_do_not_overlap_when_calendar_free_busy_is_stale(self):
+        common = dict(
+            user_id=123,
+            channel_id=456,
+            minutes=60,
+            frequency="daily",
+            fixed_time="12:00",
+            allow_split=False,
+            priority=0,
+            final_end_date=date(2026, 8, 5),
+            now=self.now,
+        )
+        first = create_rule(group_id="fixed-one", task_name="午餐一", **common)
+        second = create_rule(group_id="fixed-two", task_name="午餐二", **common)
+
+        first_result = generate_occurrences(
+            first.id, calendar=self.calendar, now=self.now
+        )
+        second_result = generate_occurrences(
+            second.id, calendar=self.calendar, now=self.now
+        )
+
+        self.assertEqual(first_result.created, 2)
+        self.assertEqual(second_result.created, 0)
+        self.assertEqual(second_result.conflicts, 2)
+
     def test_extend_adds_exactly_fourteen_days(self):
         rule = self._rule()
         generate_occurrences(rule.id, calendar=self.calendar, now=self.now)
